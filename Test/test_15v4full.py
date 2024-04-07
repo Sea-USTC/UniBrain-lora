@@ -1,3 +1,9 @@
+'''
+full-parameter finetuning the image_encoder to locate the performance bottleneck. 
+
+In version 4, we have 4 different projection layers for the encoder. 
+
+'''
 import argparse
 import os
 import yaml as yaml
@@ -124,7 +130,7 @@ def test(args,config):
     device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Total CUDA devices: ", torch.cuda.device_count()) 
     torch.set_default_tensor_type('torch.FloatTensor')
-
+    config['4_image_encoder']=True
     file_key = args.mode+'_file'
     test_dataset =  MedKLIP_Dataset(config[file_key],config['label_file']) 
     test_dataloader = DataLoader(
@@ -157,9 +163,10 @@ def test(args,config):
     tokenizer = BertTokenizer.from_pretrained(config['text_encoder'])
     text_encoder = _get_bert_basemodel(config['text_encoder']).to(device)
     text_features = get_text_features(text_encoder,disease_book,tokenizer,device,max_length=256)
-
+    image_encoder = [None,None,None,None]
     if config['model_type']== 'resnet':
-        image_encoder =ModelRes(config).to(device)
+        for idx in range(4):
+            image_encoder[idx] =ModelRes(config).to(device)
     elif config['model_type'] == 'densenet':
         image_encoder = ModelDense(config).to(device)
     elif config['model_type'] == 'VIT':
@@ -190,9 +197,10 @@ def test(args,config):
     #         print(torch.sum(h,dim=1))
     
     # image_encoder.load_state_dict(checkpoint['image_encoder'])
-    image_encoder = nn.DataParallel(image_encoder, device_ids = [i for i in range(torch.cuda.device_count())])
-    image_encoder = image_encoder.to(device)
-    image_encoder.load_state_dict(checkpoint['image_encoder'])
+    for idx in range(4):
+        image_encoder[idx] = nn.DataParallel(image_encoder[idx], device_ids = [i for i in range(torch.cuda.device_count())])
+        image_encoder[idx] = image_encoder[idx].to(device)
+        image_encoder[idx].load_state_dict(checkpoint['image_encoder'][idx])
 
     # fuseModule = nn.DataParallel(fuseModule, device_ids = [i for i in range(torch.cuda.device_count())])
     fuseModule.load_state_dict(checkpoint['fuseModule'])
@@ -205,7 +213,7 @@ def test(args,config):
 
     # class_p = json.load(open(config['class_p'],'r'))
     # class_p = torch.tensor(config["la_alpha"])*torch.log(torch.tensor([[class_p[i][0]/class_p[i][1]] for i in target_class]))
-    
+    print(f"From epoch: {checkpoint['epoch']}")
     print("Start testing")
     model.eval()
 
@@ -249,7 +257,7 @@ def test(args,config):
                     cur_image_encoder = image_encoder[idx]
                     image_feature,image_feature_pool = cur_image_encoder(cur_image)
                 else:
-                    image_feature,image_feature_pool = image_encoder(cur_image) 
+                    image_feature,image_feature_pool = image_encoder(cur_image,idx) 
                 image_features.append(image_feature)
                 image_features_pool.append(image_feature_pool)
             # before fuse
@@ -386,7 +394,7 @@ def test(args,config):
     workbook = openpyxl.Workbook()
     sheet = workbook.active
 
-    xlsx_folder_path = '/remote-home/mengxichen/UniBrain-lora/Test/xlsx_files_base1/'
+    xlsx_folder_path = '/remote-home/mengxichen/UniBrain-lora/Test/xlsx_files_full12/'
     xlsx_file_path = xlsx_folder_path + 'baseline_'+ pred_name+'.xlsx'
     if not os.path.exists(xlsx_folder_path):
         os.makedirs(xlsx_folder_path)
@@ -412,8 +420,8 @@ def test(args,config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Test/configs/config_fifteen.yaml')
-    parser.add_argument('--model_path', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline1/best_val.pth')
+    parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
+    parser.add_argument('--model_path', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/full_8/best_val.pth')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='1', help='gpu')
     parser.add_argument('--mode', type=str, default='test')

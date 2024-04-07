@@ -25,8 +25,8 @@ class ModelRes(nn.Module):
         self.res_features = nn.Sequential(*list(self.resnet.children())[:-1])
         # # num_ftrs=2048
         out_feature=config['out_feature']
-        self.res_l1 = nn.Linear(num_ftrs, num_ftrs)
-        self.res_l2 = nn.Linear(num_ftrs, out_feature)
+        self.res_l1 = nn.ModuleList([nn.Linear(num_ftrs, num_ftrs) for _ in range(4)])
+        self.res_l2 = nn.ModuleList([nn.Linear(num_ftrs, out_feature) for _ in range(4)])
 
     def _get_res_base_model(self,model_type,model_depth,input_W,input_H,input_D,resnet_shortcut,no_cuda,gpu_id,pretrain_path,out_feature):
         if model_depth == 10:
@@ -105,13 +105,11 @@ class ModelRes(nn.Module):
             pretrain_dict = {k[7:]: v for k, v in pretrain['state_dict'].items() if k[7:] in net_dict.keys()}
             print(pretrain_dict.keys())
             net_dict.update(pretrain_dict) 
-            ######
-            # model.load_state_dict(net_dict) 
-            ################
+            model.load_state_dict(net_dict) 
             print("-------- pre-train model load successfully --------")
         return model
 
-    def forward(self, images):
+    def forward(self, images, idx):
         # len(images) 4
         # out_embeds = []
         # out_pools = []
@@ -124,9 +122,9 @@ class ModelRes(nn.Module):
         h = rearrange(res_fea,'b n d -> (b n) d')
         #batch_size,num,feature_size
         # h = h.squeeze()
-        x = self.res_l1(h)
+        x = self.res_l1[idx](h)
         x = F.relu(x)
-        x = self.res_l2(x)
+        x = self.res_l2[idx](x)
         out_embed = rearrange(x,'(b n) d -> b n d',b=batch_size)
         out_pool = torch.mean(out_embed,dim=1)
         # out_embeds.append(out_emb)

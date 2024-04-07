@@ -1,7 +1,10 @@
 '''
-full-parameter finetuning the image_encoder to locate the performance bottleneck. 
+whole-modal pretrained on basemodel-UniBrain
 
-In version 4, we have 4 different projection layers for the encoder. 
+split one whole-modal input into 4 single modality to compose a dataset 4x larger than the original one.
+then the finetuned model also has respective encoder for specific single modality input.
+
+While testing, show the statistics for every missing-modality case.
 
 '''
 import argparse
@@ -33,7 +36,7 @@ from models.before_fuse import *
 
 from models.tokenization_bert import BertTokenizer
 
-from models.imageEncoder_fullproj import ModelRes, ModelDense
+from models.imageEncoder import ModelRes, ModelDense
 from models.VIT_image_encoder.VIT_ie import VIT_ie
 from transformers import AutoModel,AutoTokenizer
 
@@ -215,7 +218,7 @@ def train(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader
                 cur_image_encoder = image_encoder[idx]
                 image_feature,image_feature_pool = cur_image_encoder(cur_image)
             else:
-                image_feature,image_feature_pool = image_encoder(cur_image,idx) 
+                image_feature,image_feature_pool = image_encoder(cur_image) 
             image_features.append(image_feature)
             image_features_pool.append(image_feature_pool)
         
@@ -296,7 +299,7 @@ def train(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader
             loss_clip = torch.tensor(0).to(device)
 
         loss_ce_ratio = config['ce_loss_ratio'] if 'ce_loss_ratio' in config else 1
-        loss = loss_ce * loss_ce_ratio + loss_clip * config['kad_loss_ratio']
+        loss = loss_ce * loss_ce_ratio + loss_cl + loss_clip * config['kad_loss_ratio']
 
         
         # pred_class = logits.reshape(-1,len(target_class))
@@ -409,7 +412,7 @@ def valid(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader
                     cur_image_encoder = image_encoder[idx]
                     image_feature,image_feature_pool = cur_image_encoder(cur_image)
                 else:
-                    image_feature,image_feature_pool = image_encoder(cur_image,idx) 
+                    image_feature,image_feature_pool = image_encoder(cur_image) 
                 image_features.append(image_feature)
                 image_features_pool.append(image_feature_pool)
             
@@ -521,8 +524,7 @@ def main(args, config):
     start_epoch = 0
     max_epoch = config['schedular']['epochs']
     warmup_steps = config['schedular']['warmup_epochs'] if 'warmup_epochs' in config['schedular'] else 0
-    config['kad_loss_ratio'] = 2
-    config['ce_loss_ratio'] = 0.1
+
     #### Dataset #### 
     print("Creating dataset")
     print("train file",config['train_file'])
@@ -586,37 +588,25 @@ def main(args, config):
 
     if len(args.finetune_checkpoint):    
         checkpoint = torch.load(args.finetune_checkpoint, map_location='cpu')
-        model.load_state_dict(checkpoint['model'])
-        fuseModule.load_state_dict(checkpoint['fuseModule'])
-        pretrain_dict = {}
-        net_dict = image_encoder.state_dict()
-        # print(net_dict.keys())
-        # print(checkpoint['image_encoder'].keys())
-        for k,v in checkpoint['image_encoder'].items():
-            if k in net_dict.keys():
-                pretrain_dict[k]=v
-            elif "res_l" in k:
-                for idx in range(4):
-                    nk = f"{k[:14]}{str(idx)}.{k[14:]}"
-                    pretrain_dict[nk]=v
-        net_dict.update(pretrain_dict)
-        image_encoder.load_state_dict(net_dict)
-        # print(pretrain_dict.keys())
-        # exit(0)
+        state_dict = checkpoint['model']
+        model.load_state_dict(state_dict)
+        for name, param in model.named_parameters():
+            if "classifier" in name:
+                print(name)
+                param.requires_grad = True
+                print("init",name)
+                if 'weight' in name:
+                    param.data.normal_(mean=0.0, std=0.02)
+                elif 'bias' in name:
+                    torch.nn.init.constant_(param,0)
+                else:
+                    print("param.shape",param.shape)
+                    for i in range(len(param)):
+                        torch.nn.init.normal_(param[i], mean=0.0, std=0.02)
+            else:
+                param.requires_grad = False 
         print('load finetune checkpoint from %s'%args.finetune_checkpoint)
 
-    for param in fuseModule.parameters():
-        param.requires_grad=True
-    for param in model.parameters():
-        param.requires_grad=True
-    for param in image_encoder.parameters():
-        param.requires_grad=False
-    for m in image_encoder.module.res_l1:
-        for param in m.parameters():
-            param.requires_grad=True
-    for m in image_encoder.module.res_l2:
-        for param in m.parameters():
-            param.requires_grad=True
     arg_opt = utils.AttrDict(config['optimizer'])
     # optimizer: {opt: adamW, lr: 1e-4, weight_decay: 0.02}
     # schedular: {sched: cosine, lr: 1e-4, epochs: 100, min_lr: 1e-5, decay_rate: 1, warmup_lr: 1e-5, warmup_epochs: 5, cooldown_epochs: 0}
@@ -738,8 +728,8 @@ def seed_torch(seed):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
-    parser.add_argument('--finetune_checkpoint', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline1/best_val.pth')
-    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/fullproj_20')
+    parser.add_argument('--finetune_checkpoint', default='')
+    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline2')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='0', help='gpu')
     parser.add_argument('--seed', type=int,default=3407, help='gpu')

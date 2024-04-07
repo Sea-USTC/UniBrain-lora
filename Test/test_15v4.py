@@ -1,3 +1,9 @@
+'''
+full-parameter finetuning the image_encoder to locate the performance bottleneck. 
+
+In version 4, we have 4 different projection layers for the encoder. 
+
+'''
 import argparse
 import os
 import yaml as yaml
@@ -22,7 +28,7 @@ from models.VIT_image_encoder.VIT_ie import VIT_ie
 from dataset.dataset_v1 import MedKLIP_Dataset
 from models.tokenization_bert import BertTokenizer
 from transformers import AutoModel
-from models.imageEncoder import ModelRes, ModelDense
+from models.imageEncoder_fullproj import ModelRes, ModelDense
 from models.before_fuse import *
 from models.SimpleMLP import SimpleMLP
 
@@ -205,7 +211,7 @@ def test(args,config):
 
     # class_p = json.load(open(config['class_p'],'r'))
     # class_p = torch.tensor(config["la_alpha"])*torch.log(torch.tensor([[class_p[i][0]/class_p[i][1]] for i in target_class]))
-    
+    print(f"From epoch: {checkpoint['epoch']}")
     print("Start testing")
     model.eval()
 
@@ -249,7 +255,7 @@ def test(args,config):
                     cur_image_encoder = image_encoder[idx]
                     image_feature,image_feature_pool = cur_image_encoder(cur_image)
                 else:
-                    image_feature,image_feature_pool = image_encoder(cur_image) 
+                    image_feature,image_feature_pool = image_encoder(cur_image,idx) 
                 image_features.append(image_feature)
                 image_features_pool.append(image_feature_pool)
             # before fuse
@@ -386,7 +392,7 @@ def test(args,config):
     workbook = openpyxl.Workbook()
     sheet = workbook.active
 
-    xlsx_folder_path = '/remote-home/mengxichen/UniBrain-lora/Test/xlsx_files_base1/'
+    xlsx_folder_path = '/remote-home/mengxichen/UniBrain-lora/Test/xlsx_files_fullproj20/'
     xlsx_file_path = xlsx_folder_path + 'baseline_'+ pred_name+'.xlsx'
     if not os.path.exists(xlsx_folder_path):
         os.makedirs(xlsx_folder_path)
@@ -412,8 +418,8 @@ def test(args,config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Test/configs/config_fifteen.yaml')
-    parser.add_argument('--model_path', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline1/best_val.pth')
+    parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
+    parser.add_argument('--model_path', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/fullproj_20/best_val.pth')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='1', help='gpu')
     parser.add_argument('--mode', type=str, default='test')

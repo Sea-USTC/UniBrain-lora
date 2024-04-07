@@ -33,7 +33,7 @@ from models.before_fuse import *
 
 from models.tokenization_bert import BertTokenizer
 
-from models.imageEncoder_fullproj import ModelRes, ModelDense
+from models.imageEncoder import ModelRes, ModelDense
 from models.VIT_image_encoder.VIT_ie import VIT_ie
 from transformers import AutoModel,AutoTokenizer
 
@@ -62,6 +62,7 @@ def gen_entity_labels(entity):
     # entity [(b,1),(b,1),...]
     entity_labels = []
     for group in entity:
+        # print(group)
         b = len(group)
         a=np.eye(b)
         for i in range(b):
@@ -74,7 +75,10 @@ def gen_entity_labels(entity):
                 a[j][i] = a[i][j]
         c=1/a.sum(axis=-1)
         d = np.array([a[idx]*c[idx] for idx in range(len(a))])
+        # print(d)
+        # print(group)
         entity_labels.append(d)
+    # exit(0)
     return torch.tensor(np.array(entity_labels))
 
 def _get_bert_basemodel(bert_model_name):
@@ -222,7 +226,6 @@ def train(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader
         # before fuse
         fuse_image_feature, fuse_image_feature_pool = fuseModule(image_features)
         image_features_pool.append(fuse_image_feature_pool)
-
         if config['no_cl'] == False:
             logits, ll, cl_labels = model(fuse_image_feature,cur_text_features,cur_ana_features)
         else:
@@ -296,7 +299,7 @@ def train(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader
             loss_clip = torch.tensor(0).to(device)
 
         loss_ce_ratio = config['ce_loss_ratio'] if 'ce_loss_ratio' in config else 1
-        loss = loss_ce * loss_ce_ratio + loss_clip * config['kad_loss_ratio']
+        loss = loss_ce * loss_ce_ratio + loss_cl + loss_clip * config['kad_loss_ratio']
 
         
         # pred_class = logits.reshape(-1,len(target_class))
@@ -519,10 +522,13 @@ def main(args, config):
     cudnn.benchmark = True
 
     start_epoch = 0
+    ##############
+    config['4_image_encoder']=True
+    config['kad_loss_ratio'] = 12
+    ##############
     max_epoch = config['schedular']['epochs']
     warmup_steps = config['schedular']['warmup_epochs'] if 'warmup_epochs' in config['schedular'] else 0
-    config['kad_loss_ratio'] = 2
-    config['ce_loss_ratio'] = 0.1
+
     #### Dataset #### 
     print("Creating dataset")
     print("train file",config['train_file'])
@@ -561,9 +567,10 @@ def main(args, config):
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=config['text_encoder'])
     else:
         tokenizer = BertTokenizer.from_pretrained(pretrained_model_name_or_path=config['text_encoder'])
-
+    image_encoder = [None,None,None,None]
     if config['model_type']== 'resnet':
-        image_encoder = ModelRes(config).to(device)
+        for idx in range(4):
+            image_encoder[idx] = ModelRes(config).to(device)
     elif config['model_type'] == 'densenet':
         image_encoder = ModelDense(config).to(device)
     elif config['model_type'] == 'VIT':
@@ -579,28 +586,27 @@ def main(args, config):
     model = nn.DataParallel(model, device_ids) 
     # model = model.module
     model = model.cuda(device=device_ids[0])
-
-    image_encoder = nn.DataParallel(image_encoder, device_ids) 
+    for idx in range(4):
+        image_encoder[idx] = nn.DataParallel(image_encoder[idx], device_ids) 
     # image_encoder = image_encoder.module
-    image_encoder = image_encoder.cuda(device=device_ids[0])
+        image_encoder[idx] = image_encoder[idx].cuda(device=device_ids[0])
 
     if len(args.finetune_checkpoint):    
         checkpoint = torch.load(args.finetune_checkpoint, map_location='cpu')
         model.load_state_dict(checkpoint['model'])
         fuseModule.load_state_dict(checkpoint['fuseModule'])
         pretrain_dict = {}
-        net_dict = image_encoder.state_dict()
-        # print(net_dict.keys())
-        # print(checkpoint['image_encoder'].keys())
-        for k,v in checkpoint['image_encoder'].items():
-            if k in net_dict.keys():
-                pretrain_dict[k]=v
-            elif "res_l" in k:
-                for idx in range(4):
-                    nk = f"{k[:14]}{str(idx)}.{k[14:]}"
-                    pretrain_dict[nk]=v
-        net_dict.update(pretrain_dict)
-        image_encoder.load_state_dict(net_dict)
+        for modal in range(4):
+            net_dict = image_encoder[modal].state_dict()
+            # print(net_dict.keys())
+            # print(checkpoint['image_encoder'].keys())
+            for k,v in checkpoint['image_encoder'].items():
+                if k in net_dict.keys():
+                    pretrain_dict[k]=v
+            # print(pretrain_dict.keys())
+            # exit(0)
+            net_dict.update(pretrain_dict)
+            image_encoder[modal].load_state_dict(net_dict)
         # print(pretrain_dict.keys())
         # exit(0)
         print('load finetune checkpoint from %s'%args.finetune_checkpoint)
@@ -609,13 +615,8 @@ def main(args, config):
         param.requires_grad=True
     for param in model.parameters():
         param.requires_grad=True
-    for param in image_encoder.parameters():
-        param.requires_grad=False
-    for m in image_encoder.module.res_l1:
-        for param in m.parameters():
-            param.requires_grad=True
-    for m in image_encoder.module.res_l2:
-        for param in m.parameters():
+    for idx in range(4):
+        for param in image_encoder[idx].parameters():
             param.requires_grad=True
     arg_opt = utils.AttrDict(config['optimizer'])
     # optimizer: {opt: adamW, lr: 1e-4, weight_decay: 0.02}
@@ -705,7 +706,7 @@ def main(args, config):
 
         # if epoch % 10 == 1 and epoch>1:
         if utils.is_main_process() and best_val_auc < val_mean_auc:
-            image_encoder_params = image_encoder.state_dict()
+            image_encoder_params = [cur.state_dict() for cur in image_encoder] if config['4_image_encoder'] else image_encoder.state_dict()
             save_obj = {
                 'model': model.state_dict(),
                 'image_encoder': image_encoder_params,
@@ -739,7 +740,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
     parser.add_argument('--finetune_checkpoint', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline1/best_val.pth')
-    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/fullproj_20')
+    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/full_8')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='0', help='gpu')
     parser.add_argument('--seed', type=int,default=3407, help='gpu')

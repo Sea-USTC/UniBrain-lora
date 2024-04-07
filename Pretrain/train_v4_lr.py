@@ -3,6 +3,7 @@ full-parameter finetuning the image_encoder to locate the performance bottleneck
 
 In version 4, we have 4 different projection layers for the encoder. 
 
+in tag lr, we load the state_dict of lr_scheduler and optimizer
 '''
 import argparse
 import os
@@ -296,7 +297,7 @@ def train(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader
             loss_clip = torch.tensor(0).to(device)
 
         loss_ce_ratio = config['ce_loss_ratio'] if 'ce_loss_ratio' in config else 1
-        loss = loss_ce * loss_ce_ratio + loss_clip * config['kad_loss_ratio']
+        loss = loss_ce * loss_ce_ratio + loss_cl + loss_clip * config['kad_loss_ratio']
 
         
         # pred_class = logits.reshape(-1,len(target_class))
@@ -521,8 +522,7 @@ def main(args, config):
     start_epoch = 0
     max_epoch = config['schedular']['epochs']
     warmup_steps = config['schedular']['warmup_epochs'] if 'warmup_epochs' in config['schedular'] else 0
-    config['kad_loss_ratio'] = 2
-    config['ce_loss_ratio'] = 0.1
+
     #### Dataset #### 
     print("Creating dataset")
     print("train file",config['train_file'])
@@ -583,7 +583,7 @@ def main(args, config):
     image_encoder = nn.DataParallel(image_encoder, device_ids) 
     # image_encoder = image_encoder.module
     image_encoder = image_encoder.cuda(device=device_ids[0])
-
+    checkpoint = None
     if len(args.finetune_checkpoint):    
         checkpoint = torch.load(args.finetune_checkpoint, map_location='cpu')
         model.load_state_dict(checkpoint['model'])
@@ -621,11 +621,16 @@ def main(args, config):
     # optimizer: {opt: adamW, lr: 1e-4, weight_decay: 0.02}
     # schedular: {sched: cosine, lr: 1e-4, epochs: 100, min_lr: 1e-5, decay_rate: 1, warmup_lr: 1e-5, warmup_epochs: 5, cooldown_epochs: 0}
     optimizer = create_optimizer(arg_opt, model, image_encoder, text_encoder, fuseModule)
+    # if len(args.finetune_checkpoint):
+    #     optimizer.load_state_dict(checkpoint['optimizer'])
     # optimizer = nn.DataParallel(optimizer,device_ids)
     # model = model.cuda(device=device_ids[0])
     arg_sche = utils.AttrDict(config['schedular'])
     lr_scheduler, _ = create_scheduler(arg_sche, optimizer)
-    
+    if len(args.finetune_checkpoint):
+        lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        print(f"From epoch: {checkpoint['epoch']}")
+        start_epoch=checkpoint['epoch']
     print("Start training")
     start_time = time.time()
 
@@ -739,7 +744,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
     parser.add_argument('--finetune_checkpoint', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline1/best_val.pth')
-    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/fullproj_20')
+    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/fullproj_lr')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='0', help='gpu')
     parser.add_argument('--seed', type=int,default=3407, help='gpu')

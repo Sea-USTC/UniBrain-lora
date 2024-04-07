@@ -42,13 +42,23 @@ def add_weight_decay(model, image_encoder,text_encoder,model_2=None, fuseModule=
                 no_decay.append(param)
             else:
                 decay.append(param)
-    for name, param in image_encoder.named_parameters():
-        if not param.requires_grad:
-            continue  # frozen weights
-        if len(param.shape) == 1 or name.endswith(".bias") or name in skip_list:
-            no_decay.append(param)
-        else:
-            decay.append(param)
+    if isinstance(image_encoder,list):
+        for _, cur_encoder in enumerate(image_encoder):
+            for name, param in cur_encoder.named_parameters():
+                if not param.requires_grad:
+                    continue  # frozen weights
+                if len(param.shape) == 1 or name.endswith(".bias") or name in skip_list:
+                    no_decay.append(param)
+                else:
+                    decay.append(param)
+    else:
+        for name, param in image_encoder.named_parameters():
+            if not param.requires_grad:
+                continue  # frozen weights
+            if len(param.shape) == 1 or name.endswith(".bias") or name in skip_list:
+                no_decay.append(param)
+            else:
+                decay.append(param)
     for name, param in text_encoder.named_parameters():
         if not param.requires_grad:
             continue  # frozen weights
