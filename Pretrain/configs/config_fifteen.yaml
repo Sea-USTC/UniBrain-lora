@@ -10,9 +10,9 @@ text_encoder: /remote-home/mengxichen/UniBrain-lora/Pretrain/xmcmic
 train_file: /remote-home/mengxichen/UniBrain-lora/Pretrain/datafile_fifteen/train_data_path.json
 valid_file: /remote-home/mengxichen/UniBrain-lora/Pretrain/datafile_fifteen/val_data_path.json
 
-test_batch_size: 8
-train_batch_size: 12
-val_batch_size: 12
+test_batch_size: 16
+train_batch_size: 32
+val_batch_size: 32
 
 augment: True
 

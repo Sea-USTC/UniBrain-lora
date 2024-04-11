@@ -99,16 +99,17 @@ class ModelRes(nn.Module):
         net_dict = model.state_dict()
         model = model.cuda()
 
-        if pretrain_path != 'None':
-            print('loading pretrained model {}'.format(pretrain_path))
-            pretrain = torch.load(pretrain_path)
-            pretrain_dict = {k[7:]: v for k, v in pretrain['state_dict'].items() if k[7:] in net_dict.keys()}
-            print(pretrain_dict.keys())
-            net_dict.update(pretrain_dict) 
-            ######
-            # model.load_state_dict(net_dict) 
-            ################
-            print("-------- pre-train model load successfully --------")
+        # if pretrain_path != 'None':
+        #     print('loading pretrained model {}'.format(pretrain_path))
+        #     pretrain = torch.load(pretrain_path)
+        #     pretrain_dict = {k[7:]: v for k, v in pretrain['state_dict'].items() if k[7:] in net_dict.keys()}
+        #     print(pretrain_dict.keys())
+        #     net_dict.update(pretrain_dict) 
+        #     ######
+        #     # model.load_state_dict(net_dict) 
+        #     ################
+        #     print("-------- pre-train model load successfully --------")
+        
         return model
 
     def forward(self, images):

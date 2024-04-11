@@ -28,7 +28,7 @@ from tensorboardX import SummaryWriter
 import utils
 from scheduler import create_scheduler
 from optim.optim_factory_kad import create_optimizer
-from dataset.dataset import MedKLIP_Dataset
+from dataset.dataset_missing import MedKLIP_Dataset
 # from models.model_MedKLIP import MedKLIP
 from models.model_MedKLIP_before_fuse import MedKLIP as MedKLIP
 from models.before_fuse import *
@@ -545,7 +545,7 @@ def main(args, config):
             drop_last=True,
         )     
     
-    val_datasets = MedKLIP_Dataset(config['valid_file'],config['label_file'],config['dis_label_file'],config['report_observe'],mode ='train',mask_modal=mask_modal)
+    val_datasets = MedKLIP_Dataset(config['valid_file'],config['label_file'],config['dis_label_file'],config['report_observe'],mode ='valid',mask_modal=mask_modal)
     val_dataloader = DataLoader(
             val_datasets,
             batch_size=config['val_batch_size'],
@@ -727,9 +727,9 @@ def seed_torch(seed):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
+    parser.add_argument('--config', default='/root/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
     parser.add_argument('--finetune_checkpoint', default='')
-    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline2')
+    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_missing/output_baseline')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='0', help='gpu')
     parser.add_argument('--seed', type=int,default=3407, help='gpu')
