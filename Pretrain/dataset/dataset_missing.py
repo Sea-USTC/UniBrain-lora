@@ -20,6 +20,9 @@ from augmentation.data_trans import *
 class MedKLIP_Dataset(Dataset):
     def __init__(self, data_path, label_path, dis_label_path, report_observe, mode = 'train', augmentation=False, only_global=False,mask_modal=""):
         self.ann = json.load(open(data_path,'r'))
+        for key in self.ann:
+            for mod in ["DWI","T1WI","T2WI","T2FLAIR"]:
+                self.ann[key][mod]= "/DB/public"+self.ann[key][mod][34:]
         self.fid_list = list(self.ann)
         self.label_npy = np.load(label_path)
         self.dis_label_npy = np.load(dis_label_path)
@@ -29,9 +32,9 @@ class MedKLIP_Dataset(Dataset):
         self.mask_modal = mask_modal
         self.totlen = len(self.fid_list)
         if mode == 'train':
-            miss_path = '/remote-home/mengxichen/UniBrain-lora/missidx_t.npy'
+            miss_path = '/GPFS/rhome/hanchongyan/UniBrain-lora/missidx_t.npy'
         elif mode == 'valid':
-            miss_path = '/remote-home/mengxichen/UniBrain-lora/missidx_v.npy'
+            miss_path = '/GPFS/rhome/hanchongyan/UniBrain-lora/missidx_v.npy'
         if os.path.exists(miss_path):
             self.randmiss = np.load(miss_path)
         else:

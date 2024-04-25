@@ -253,7 +253,7 @@ class ClipLoss(nn.Module):
         self.rank = rank
         self.world_size = world_size
         self.use_horovod = use_horovod
-
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         # cache state
         self.prev_num_logits = 0
         self.labels = {}
@@ -264,7 +264,7 @@ class ClipLoss(nn.Module):
         # image_features 4 b d
         # text_features 4 b d
         # labels 4 b b
-        logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        scale = self.logit_scale.exp()
         device = image_features[0].device
         # if self.world_size > 1:
         #     all_image_features, all_text_features = gather_features(
@@ -286,9 +286,11 @@ class ClipLoss(nn.Module):
             image_cnt += 1
             cur_text_feature = text_features[i] if i<len(text_features) else text_features[-1]
             cur_label = labels[i] if i<len(labels) else labels[-1]
+            image_feature = image_features[i] / image_features[i].norm(dim=1, keepdim=True)
+            cur_text_feature = cur_text_feature / cur_text_feature.norm(dim=1, keepdim=True)
             # print("img.shape",image_features[i].shape,text_features[i].shape,labels[i].shape)
-            logits_per_image = logit_scale * image_features[i] @ cur_text_feature.T
-            logits_per_text = logit_scale * cur_text_feature @ image_features[i].T
+            logits_per_image = scale * image_feature @ cur_text_feature.T
+            logits_per_text = scale * cur_text_feature @ image_feature.T
             
             # logits_per_image b b logits_per_text b b
             # calculated ground-truth and cache if enabled

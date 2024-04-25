@@ -111,7 +111,7 @@ def add_weight_decay(model, image_encoder,text_encoder,model_2=None, fuseModule=
         {'params': decay, 'weight_decay': weight_decay}]
 
 
-def create_optimizer(args, model, image_encoder,text_encoder, model_2=None, fuseModule=None,weight_MLP=None,project_MLP=None,classifier = None, filter_bias_and_bn=True):
+def create_optimizer(args, model, image_encoder,text_encoder, model_2=None, fuseModule=None,weight_MLP=None,project_MLP=None,classifier = None, filter_bias_and_bn=True, clip_loss=None):
     opt_lower = args.opt.lower()
     # {opt: adamW, lr: 1e-4, weight_decay: 0.02}
     weight_decay = args.weight_decay
@@ -134,7 +134,10 @@ def create_optimizer(args, model, image_encoder,text_encoder, model_2=None, fuse
         if classifier is not None:
             parameters.append(filter(lambda p: p.requires_grad, classifier.parameters()))
         #model.parameters()
-
+    if clip_loss:
+        for v in clip_loss.parameters():
+            parameters[0]['params'].append(v)
+            print(v)
     # print(parameters)
     if 'fused' in opt_lower:
         assert has_apex and torch.cuda.is_available(), 'APEX and CUDA required for fused optimizers'
