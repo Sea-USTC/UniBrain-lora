@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(0,'/remote-home/mengxichen/UniBrain-lora/Pretrain')
 import argparse
 import os
 import yaml as yaml
@@ -17,9 +19,9 @@ from sklearn.metrics import roc_auc_score,precision_recall_curve,accuracy_score,
 
 # from models.model_MedKLIP import MedKLIP
 from models.model_MedKLIP_before_fuse import MedKLIP as MedKLIP
-from models.model_MedKLIP_14class_before_fuse import MedKLIP as MedKLIP_14
+# from models.model_MedKLIP_14class_before_fuse import MedKLIP as MedKLIP_14
 from models.VIT_image_encoder.VIT_ie import VIT_ie
-from dataset.dataset_v1 import MedKLIP_Dataset
+from dataset.dataset_m1t import MedKLIP_Dataset
 from models.tokenization_bert import BertTokenizer
 from transformers import AutoModel
 from models.imageEncoder import ModelRes, ModelDense
@@ -126,7 +128,7 @@ def test(args,config):
     torch.set_default_tensor_type('torch.FloatTensor')
 
     file_key = args.mode+'_file'
-    test_dataset =  MedKLIP_Dataset(config[file_key],config['label_file']) 
+    test_dataset =  MedKLIP_Dataset(config[file_key],config['label_file'],modfilter=[1,1,0,0]) 
     test_dataloader = DataLoader(
             test_dataset,
             batch_size=config['test_batch_size'],
@@ -170,7 +172,7 @@ def test(args,config):
     print("Creating model")
     if config['seperate_classifier']:
         print("Medklip_14")
-        model = MedKLIP_14(config)
+        # model = MedKLIP_14(config)
     else:
         print("medklip")
         model = MedKLIP(config)
@@ -256,7 +258,7 @@ def test(args,config):
             fuse_image_feature,_ = fuseModule(image_features)
             #input_image = image.to(device,non_blocking=True)  
             with torch.no_grad():
-                pred_class = model(fuse_image_feature,cur_text_features, return_ws=False) #batch_size,num_class,1
+                pred_class = model(fuse_image_feature,cur_text_features) #batch_size,num_class,1
                 # pred_class = F.softmax(pred_class.reshape(-1,2)).reshape(-1,len(target_class),2)
                 # pred_class = pred_class[:,:-1,1]
                 # pred_class = pred_class[:,:,1]
@@ -386,7 +388,7 @@ def test(args,config):
     workbook = openpyxl.Workbook()
     sheet = workbook.active
 
-    xlsx_folder_path = '/remote-home/mengxichen/UniBrain-lora/Test/xlsx_files_base1/'
+    xlsx_folder_path = '/remote-home/mengxichen/UniBrain-lora/Test/xlsx_files_prebs_m12/'
     xlsx_file_path = xlsx_folder_path + 'baseline_'+ pred_name+'.xlsx'
     if not os.path.exists(xlsx_folder_path):
         os.makedirs(xlsx_folder_path)
@@ -413,7 +415,7 @@ def test(args,config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
-    parser.add_argument('--model_path', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_fifteen/output_baseline1/best_val.pth')
+    parser.add_argument('--model_path', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_missing/output_baselinev1/best_val.pth')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='1', help='gpu')
     parser.add_argument('--mode', type=str, default='test')

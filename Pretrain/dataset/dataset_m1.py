@@ -18,7 +18,7 @@ from .BraTS import nib_load
 from augmentation.data_trans import *
 
 class MedKLIP_Dataset(Dataset):
-    def __init__(self, data_path, label_path, dis_label_path, report_observe, mode = 'train', augmentation=False, only_global=False,mask_modal=""):
+    def __init__(self, data_path, label_path, dis_label_path, report_observe, mode = 'train', augmentation=False, only_global=False,mask_modal="", modfilter=None):
         self.ann = json.load(open(data_path,'r'))
         self.fid_list = list(self.ann)
         for k in self.ann:
@@ -30,6 +30,7 @@ class MedKLIP_Dataset(Dataset):
         self.augmentation = augmentation
         self.only_global = only_global
         self.mask_modal = mask_modal
+        self.modal = modfilter  #[1,0,0,0]
         self.totlen = len(self.fid_list)
         if mode == 'train':
             miss_path = '/remote-home/mengxichen/UniBrain-lora/missidx_t.npy'
@@ -50,12 +51,7 @@ class MedKLIP_Dataset(Dataset):
     
     def __getitem__(self, index):
         miss_idx = self.randmiss[index]
-        modal_state = [1,1,1,1]
-        idx = 3
-        while miss_idx>0 :
-            modal_state[idx]=miss_idx % 2
-            miss_idx=miss_idx//2
-            idx-=1    
+        modal_state = self.modal #[1,0,0,0]
         fid = self.fid_list[index]
         labels = self.label_npy[self.ann[fid]["labels_id"],:]
         dis_labels = self.dis_label_npy[self.ann[fid]["labels_id"],:]

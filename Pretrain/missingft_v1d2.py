@@ -28,7 +28,7 @@ from tensorboardX import SummaryWriter
 import utils
 from scheduler import create_scheduler
 from optim.optim_factory_kad import create_optimizer
-from dataset.dataset_missing import MedKLIP_Dataset
+from dataset.dataset_m1 import MedKLIP_Dataset
 # from models.model_MedKLIP import MedKLIP
 from models.model_MedKLIP_before_fuse import MedKLIP as MedKLIP
 from models.before_fuse import *
@@ -131,7 +131,7 @@ def evaluate(tensorboard):
         accs.append(accuracy_score(gt_np, pred_np>max_f1_thresh))
     return AUROCs,accs,max_f1s,mean_AUROC
 
-def train(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader, optimizer, epoch, warmup_steps, device, scheduler, config):
+def train(model, image_encoder, text_encoder, fuseModule, tokenizer, data_loader, optimizer, epoch, warmup_steps, device, scheduler, config, clip_loss):
     mask_modal = config['mask_modal'] if 'mask_modal' in config else ""
     clip_loss = ClipLoss(mask_modal=mask_modal)
     model.train()
@@ -531,7 +531,7 @@ def main(args, config):
     print("valid file",config['valid_file'])
     augment = True if 'augment' in config and config['augment'] else False
     mask_modal = config['mask_modal'] if 'mask_modal' in config else ""
-    train_datasets = MedKLIP_Dataset(config['train_file'],config['label_file'],config['dis_label_file'],config['report_observe'], mode = 'train', augmentation=augment,mask_modal=mask_modal)
+    train_datasets = MedKLIP_Dataset(config['train_file'],config['label_file'],config['dis_label_file'],config['report_observe'], mode = 'train', augmentation=augment,mask_modal=mask_modal, modfilter=[1,0,0,0])
     train_sampler = UniformSampler(train_datasets,config['batch_size'],batch_clas_num=8) if 'uniform_sample' in config and config['uniform_sample'] else None
     shuffle = False if 'uniform_sample' in config and config['uniform_sample'] else True
     train_dataloader = DataLoader(
@@ -545,7 +545,7 @@ def main(args, config):
             drop_last=True,
         )     
     
-    val_datasets = MedKLIP_Dataset(config['valid_file'],config['label_file'],config['dis_label_file'],config['report_observe'],mode ='valid',mask_modal=mask_modal)
+    val_datasets = MedKLIP_Dataset(config['valid_file'],config['label_file'],config['dis_label_file'],config['report_observe'],mode ='valid',mask_modal=mask_modal,modfilter=[1,0,0,0])
     val_dataloader = DataLoader(
             val_datasets,
             batch_size=config['val_batch_size'],
@@ -585,32 +585,28 @@ def main(args, config):
     image_encoder = nn.DataParallel(image_encoder, device_ids) 
     # image_encoder = image_encoder.module
     image_encoder = image_encoder.cuda(device=device_ids[0])
+    clip_loss = ClipLoss(mask_modal=mask_modal)
 
     if len(args.finetune_checkpoint):    
         checkpoint = torch.load(args.finetune_checkpoint, map_location='cpu')
-        state_dict = checkpoint['model']
-        model.load_state_dict(state_dict)
-        for name, param in model.named_parameters():
-            if "classifier" in name:
-                print(name)
-                param.requires_grad = True
-                print("init",name)
-                if 'weight' in name:
-                    param.data.normal_(mean=0.0, std=0.02)
-                elif 'bias' in name:
-                    torch.nn.init.constant_(param,0)
-                else:
-                    print("param.shape",param.shape)
-                    for i in range(len(param)):
-                        torch.nn.init.normal_(param[i], mean=0.0, std=0.02)
-            else:
-                param.requires_grad = False 
+        model.load_state_dict(checkpoint['model'])
+        fuseModule.load_state_dict(checkpoint['fuseModule'])
+        image_encoder.load_state_dict(checkpoint['image_encoder'])
+        clip_loss.load_state_dict(checkpoint['clip_loss'])
         print('load finetune checkpoint from %s'%args.finetune_checkpoint)
+    for param in image_encoder.parameters():
+        param.requires_grad=True
+    for param in fuseModule.parameters():
+        param.requires_grad=True
+    for param in model.parameters():
+        param.requires_grad=True
+    for param in clip_loss.parameters():
+        param.requires_grad=True
 
     arg_opt = utils.AttrDict(config['optimizer'])
     # optimizer: {opt: adamW, lr: 1e-4, weight_decay: 0.02}
     # schedular: {sched: cosine, lr: 1e-4, epochs: 100, min_lr: 1e-5, decay_rate: 1, warmup_lr: 1e-5, warmup_epochs: 5, cooldown_epochs: 0}
-    optimizer = create_optimizer(arg_opt, model, image_encoder, text_encoder, fuseModule)
+    optimizer = create_optimizer(arg_opt, model, image_encoder, text_encoder, fuseModule, clip_loss=clip_loss)
     # optimizer = nn.DataParallel(optimizer,device_ids)
     # model = model.cuda(device=device_ids[0])
     arg_sche = utils.AttrDict(config['schedular'])
@@ -631,7 +627,7 @@ def main(args, config):
 
         lr_scheduler.step(epoch)
         
-        train_stats, tensorboard_train = train(model, image_encoder, text_encoder, fuseModule, tokenizer, train_dataloader, optimizer, epoch, warmup_steps, device, lr_scheduler, config) 
+        train_stats, tensorboard_train = train(model, image_encoder, text_encoder, fuseModule, tokenizer, train_dataloader, optimizer, epoch, warmup_steps, device, lr_scheduler, config, clip_loss) 
 
         writer.add_scalar('lr/leaning_rate',  lr_scheduler._get_lr(epoch)[0] , epoch)
 
@@ -670,6 +666,7 @@ def main(args, config):
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'config': config,
                 'epoch': epoch,
+                'clip_loss': clip_loss.state_dict(),
             }
             torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_state.pth'))  
             
@@ -704,6 +701,7 @@ def main(args, config):
                 'lr_scheduler': lr_scheduler.state_dict(),
                 'config': config,
                 'epoch': epoch,
+                'clip_loss': clip_loss.state_dict(),
             }
             torch.save(save_obj, os.path.join(args.output_dir, 'best_val.pth')) 
             best_val_auc = val_mean_auc
@@ -727,9 +725,9 @@ def seed_torch(seed):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='/root/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
-    parser.add_argument('--finetune_checkpoint', default='')
-    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_missing/output_baseline')
+    parser.add_argument('--config', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/configs/config_fifteen.yaml')
+    parser.add_argument('--finetune_checkpoint', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_missing/output_baselinev1d2/best_val.pth')
+    parser.add_argument('--output_dir', default='/remote-home/mengxichen/UniBrain-lora/Pretrain/output_missing/output_ftv1d2')
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--gpu', type=str,default='0', help='gpu')
     parser.add_argument('--seed', type=int,default=3407, help='gpu')
