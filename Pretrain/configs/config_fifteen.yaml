@@ -23,6 +23,7 @@ r: [2,4,8]
 r_resnet: 8
 r_proj: 4
 lora_alpha: 1
+r_ratio: 0.2
 
 kad: true
 kad_loss_ratio: 1
